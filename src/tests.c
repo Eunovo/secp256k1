@@ -5033,7 +5033,7 @@ int test_ecmult_multi_random(secp256k1_scratch *scratch) {
     int g_nonzero, num_nonzero;
 
     /* Which multiplication function to use */
-    int fn = secp256k1_testrand_int(3);
+    int fn = testrand_int(3);
     secp256k1_ecmult_multi_func ecmult_multi = fn == 0 ? secp256k1_ecmult_multi_var :
                                                fn == 1 ? secp256k1_ecmult_strauss_batch_single :
                                                secp256k1_ecmult_pippenger_batch_single;
@@ -7530,10 +7530,16 @@ static void run_ecdsa_wycheproof(void) {
 
 #ifdef ENABLE_MODULE_EXTRAKEYS
 # include "modules/extrakeys/tests_impl.h"
+# ifdef ENABLE_MODULE_BATCH
+#  include "modules/extrakeys/batch_add_tests_impl.h"
+# endif
 #endif
 
 #ifdef ENABLE_MODULE_SCHNORRSIG
 # include "modules/schnorrsig/tests_impl.h"
+# ifdef ENABLE_MODULE_BATCH
+#  include "modules/schnorrsig/batch_add_tests_impl.h"
+# endif
 #endif
 
 #ifdef ENABLE_MODULE_MUSIG
@@ -7902,10 +7908,16 @@ int main(int argc, char **argv) {
 
 #ifdef ENABLE_MODULE_EXTRAKEYS
     run_extrakeys_tests();
+# ifdef ENABLE_MODULE_BATCH
+    run_batch_add_xonlypub_tweak_tests();
+# endif
 #endif
 
 #ifdef ENABLE_MODULE_SCHNORRSIG
     run_schnorrsig_tests();
+# ifdef ENABLE_MODULE_BATCH
+    run_batch_add_schnorrsig_tests();
+# endif
 #endif
 
 #ifdef ENABLE_MODULE_MUSIG
