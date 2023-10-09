@@ -95,7 +95,7 @@ int secp256k1_batch_add_xonlypub_tweak_check(const secp256k1_context* ctx, secp2
         return 0;
     }
 
-    if (!secp256k1_fe_set_b32(&qx, tweaked_pubkey32)) {
+    if (!secp256k1_fe_set_b32_limit(&qx, tweaked_pubkey32)) {
         return 0;
     }
 

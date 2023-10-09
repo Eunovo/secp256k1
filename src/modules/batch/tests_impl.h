@@ -62,25 +62,22 @@ void test_batch_api(void) {
     secp256k1_context *sign = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     secp256k1_context *vrfy = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
     secp256k1_context *both = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
-    secp256k1_context *sttc = secp256k1_context_clone(secp256k1_context_no_precomp);
-    secp256k1_batch *batch_none;
-    secp256k1_batch *batch_sign;
-    secp256k1_batch *batch_vrfy;
-    secp256k1_batch *batch_both;
-    secp256k1_batch *batch_sttc;
+    secp256k1_context *sttc = malloc(sizeof(*secp256k1_context_no_precomp));
+    memcpy(sttc, secp256k1_context_no_precomp, sizeof(secp256k1_context));
+
     unsigned char aux_rand16[32];
     int ecount;
 
-    secp256k1_context_set_error_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(vrfy, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(both, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(sttc, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(vrfy, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(both, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(sttc, counting_illegal_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(vrfy, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(both, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(sttc, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(vrfy, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(both, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(sttc, counting_callback_fn, &ecount);
 
     /* 16 byte auxiliary randomness */
     testrand256(aux_rand16);
@@ -114,21 +111,21 @@ void test_batch_api(void) {
     /** main test body **/
     /* batch_create tests */
     ecount = 0;
-    batch_none = secp256k1_batch_create(none, 1, NULL);
+    secp256k1_batch *batch_none = secp256k1_batch_create(none, 1, NULL);
     CHECK(batch_none != NULL);
     CHECK(ecount == 0);
     /* 2*N_SIGS since one schnorrsig creates two scalar-point pair in batch */
-    batch_sign = secp256k1_batch_create(sign, 2*N_SIGS, NULL);
+    secp256k1_batch *batch_sign = secp256k1_batch_create(sign, 2*N_SIGS, NULL);
     CHECK(batch_sign != NULL);
     CHECK(ecount == 0);
-    batch_vrfy = secp256k1_batch_create(vrfy, N_TWK_CHECKS - 1, aux_rand16);
+    secp256k1_batch *batch_vrfy = secp256k1_batch_create(vrfy, N_TWK_CHECKS - 1, aux_rand16);
     CHECK(batch_vrfy != NULL);
     CHECK(ecount == 0);
-    batch_both = secp256k1_batch_create(both, N_TERMS/4, aux_rand16);
+    secp256k1_batch *batch_both = secp256k1_batch_create(both, N_TERMS/4, aux_rand16);
     CHECK(batch_both != NULL);
     CHECK(ecount == 0);
     /* ARG_CHECK(max_terms != 0) in `batch_create` should fail*/
-    batch_sttc = secp256k1_batch_create(sttc, 0, NULL);
+    secp256k1_batch *batch_sttc = secp256k1_batch_create(sttc, 0, NULL);
     CHECK(batch_sttc == NULL);
     CHECK(ecount == 1);
 

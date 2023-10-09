@@ -94,7 +94,7 @@ int secp256k1_batch_add_schnorrsig(const secp256k1_context* ctx, secp256k1_batch
         return 0;
     }
 
-    if (!secp256k1_fe_set_b32(&rx, &sig64[0])) {
+    if (!secp256k1_fe_set_b32_limit(&rx, &sig64[0])) {
         return 0;
     }
 

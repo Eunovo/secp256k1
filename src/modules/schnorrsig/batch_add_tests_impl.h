@@ -51,7 +51,7 @@ void run_batch_schnorrsig_randomizer_gen_tests(void) {
         args[1] = msg;
         args[2] = compressed_pk;
 
-        for (j = 0; j < count; j++) {
+        for (j = 0; j < COUNT; j++) {
             batch_schnorrsig_randomizer_gen_bitflip(&sha, args, 0, 64, msglen);
             batch_schnorrsig_randomizer_gen_bitflip(&sha, args, 1, 32, msglen);
             batch_schnorrsig_randomizer_gen_bitflip(&sha, args, 2, 33, msglen);
@@ -61,7 +61,7 @@ void run_batch_schnorrsig_randomizer_gen_tests(void) {
         sha_cpy = sha;
         secp256k1_batch_schnorrsig_randomizer_gen(randomizer, &sha_cpy, sig, msg, msglen, compressed_pk);
 
-        for (j = 0; j < count; j++) {
+        for (j = 0; j < COUNT; j++) {
             unsigned char randomizer2[32];
             uint32_t offset = testrand_int(msglen - 1);
             size_t msglen_tmp = (msglen + offset) % msglen;
@@ -85,16 +85,16 @@ void run_batch_schnorrsig_randomizer_gen_tests(void) {
 void test_schnorrsig_sign_verify_check_batch(secp256k1_batch *batch, unsigned char *sig64, unsigned char *msg, size_t msglen, secp256k1_xonly_pubkey *pk) {
     int ret;
 
-    CHECK(secp256k1_batch_usable(ctx, batch));
+    CHECK(secp256k1_batch_usable(CTX, batch));
     /* filling a random byte (in msg or sig) can cause the following:
      *     1. unparsable msg or sig - here, batch_add_schnorrsig fails and batch_verify passes
      *     2. invalid schnorr eqn   - here, batch_verify fails and batch_add_schnorrsig passes
      */
-    ret = secp256k1_batch_add_schnorrsig(ctx, batch, sig64, msg, msglen, pk);
+    ret = secp256k1_batch_add_schnorrsig(CTX, batch, sig64, msg, msglen, pk);
     if (ret == 0) {
-        CHECK(secp256k1_batch_verify(ctx, batch) == 1);
+        CHECK(secp256k1_batch_verify(CTX, batch) == 1);
     } else if (ret == 1) {
-        CHECK(secp256k1_batch_verify(ctx, batch) == 0);
+        CHECK(secp256k1_batch_verify(CTX, batch) == 0);
     }
 }
 
@@ -117,24 +117,24 @@ void test_schnorrsig_sign_batch_verify(void) {
 
     /* batch[0] will be used where batch_add and batch_verify
      * are expected to succed */
-    batch[0] = secp256k1_batch_create(ctx, 2*N_SIGS, NULL);
+    batch[0] = secp256k1_batch_create(CTX, 2*N_SIGS, NULL);
     for (i = 0; i < N_SIGS; i++) {
-        batch[i+1] = secp256k1_batch_create(ctx, 2*ONE_SIG, NULL);
+        batch[i+1] = secp256k1_batch_create(CTX, 2*ONE_SIG, NULL);
     }
-    batch_fail1 = secp256k1_batch_create(ctx, 2*ONE_SIG, NULL);
-    batch_fail2 = secp256k1_batch_create(ctx, 2*ONE_SIG, NULL);
+    batch_fail1 = secp256k1_batch_create(CTX, 2*ONE_SIG, NULL);
+    batch_fail2 = secp256k1_batch_create(CTX, 2*ONE_SIG, NULL);
 
     testrand256(sk);
-    CHECK(secp256k1_keypair_create(ctx, &keypair, sk));
-    CHECK(secp256k1_keypair_xonly_pub(ctx, &pk, NULL, &keypair));
+    CHECK(secp256k1_keypair_create(CTX, &keypair, sk));
+    CHECK(secp256k1_keypair_xonly_pub(CTX, &pk, NULL, &keypair));
 
     for (i = 0; i < N_SIGS; i++) {
         testrand256(msg[i]);
-        CHECK(secp256k1_schnorrsig_sign32(ctx, sig[i], msg[i], &keypair, NULL));
-        CHECK(secp256k1_batch_usable(ctx, batch[0]));
-        CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[i], msg[i], sizeof(msg[i]), &pk));
+        CHECK(secp256k1_schnorrsig_sign32(CTX, sig[i], msg[i], &keypair, NULL));
+        CHECK(secp256k1_batch_usable(CTX, batch[0]));
+        CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[i], msg[i], sizeof(msg[i]), &pk));
     }
-    CHECK(secp256k1_batch_verify(ctx, batch[0]));
+    CHECK(secp256k1_batch_verify(CTX, batch[0]));
 
     {
         /* Flip a few bits in the signature and in the message and check that
@@ -158,29 +158,29 @@ void test_schnorrsig_sign_batch_verify(void) {
         msg[sig_idx][byte_idx] ^= xorbyte;
 
         /* Check that above bitflips have been reversed correctly */
-        CHECK(secp256k1_schnorrsig_verify(ctx, sig[sig_idx], msg[sig_idx], sizeof(msg[sig_idx]), &pk));
+        CHECK(secp256k1_schnorrsig_verify(CTX, sig[sig_idx], msg[sig_idx], sizeof(msg[sig_idx]), &pk));
     }
 
     /* Test overflowing s */
-    CHECK(secp256k1_schnorrsig_sign32(ctx, sig[0], msg[0], &keypair, NULL));
-    CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
+    CHECK(secp256k1_schnorrsig_sign32(CTX, sig[0], msg[0], &keypair, NULL));
+    CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
     memset(&sig[0][32], 0xFF, 32);
-    CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 0);
+    CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 0);
 
     /* Test negative s */
-    CHECK(secp256k1_schnorrsig_sign32(ctx, sig[0], msg[0], &keypair, NULL));
-    CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
+    CHECK(secp256k1_schnorrsig_sign32(CTX, sig[0], msg[0], &keypair, NULL));
+    CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
     secp256k1_scalar_set_b32(&s, &sig[0][32], NULL);
     secp256k1_scalar_negate(&s, &s);
     secp256k1_scalar_get_b32(&sig[0][32], &s);
-    CHECK(secp256k1_batch_add_schnorrsig(ctx, batch_fail1, sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
-    CHECK(secp256k1_batch_verify(ctx, batch_fail1) == 0);
+    CHECK(secp256k1_batch_add_schnorrsig(CTX, batch_fail1, sig[0], msg[0], sizeof(msg[0]), &pk) == 1);
+    CHECK(secp256k1_batch_verify(CTX, batch_fail1) == 0);
 
     /* The empty message can be signed & verified */
-    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig[0], NULL, 0, &keypair, NULL) == 1);
-    CHECK(secp256k1_batch_usable(ctx, batch[0]) == 1);
-    CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[0], NULL, 0, &pk) == 1);
-    CHECK(secp256k1_batch_verify(ctx, batch[0]) == 1);
+    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig[0], NULL, 0, &keypair, NULL) == 1);
+    CHECK(secp256k1_batch_usable(CTX, batch[0]) == 1);
+    CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[0], NULL, 0, &pk) == 1);
+    CHECK(secp256k1_batch_verify(CTX, batch[0]) == 1);
 
     {
         /* Test varying message lengths */
@@ -189,23 +189,23 @@ void test_schnorrsig_sign_batch_verify(void) {
         for (i = 0; i < sizeof(msg_large); i += 32) {
             testrand256(&msg_large[i]);
         }
-        CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig[0], msg_large, msglen, &keypair, NULL) == 1);
-        CHECK(secp256k1_batch_usable(ctx, batch[0]) == 1);
-        CHECK(secp256k1_batch_add_schnorrsig(ctx, batch[0], sig[0], msg_large, msglen, &pk) == 1);
-        CHECK(secp256k1_batch_verify(ctx, batch[0]) == 1);
+        CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig[0], msg_large, msglen, &keypair, NULL) == 1);
+        CHECK(secp256k1_batch_usable(CTX, batch[0]) == 1);
+        CHECK(secp256k1_batch_add_schnorrsig(CTX, batch[0], sig[0], msg_large, msglen, &pk) == 1);
+        CHECK(secp256k1_batch_verify(CTX, batch[0]) == 1);
         /* batch_add fails for a random wrong message length */
         msglen = (msglen + (sizeof(msg_large) - 1)) % sizeof(msg_large);
-        CHECK(secp256k1_batch_usable(ctx, batch_fail2) == 1);
-        CHECK(secp256k1_batch_add_schnorrsig(ctx, batch_fail2, sig[0], msg_large, msglen, &pk) == 1);
-        CHECK(secp256k1_batch_verify(ctx, batch_fail2) == 0);
+        CHECK(secp256k1_batch_usable(CTX, batch_fail2) == 1);
+        CHECK(secp256k1_batch_add_schnorrsig(CTX, batch_fail2, sig[0], msg_large, msglen, &pk) == 1);
+        CHECK(secp256k1_batch_verify(CTX, batch_fail2) == 0);
     }
 
     /* Destroy the batch objects */
     for (i = 0; i < N_SIGS+1; i++) {
-        secp256k1_batch_destroy(ctx, batch[i]);
+        secp256k1_batch_destroy(CTX, batch[i]);
     }
-    secp256k1_batch_destroy(ctx, batch_fail1);
-    secp256k1_batch_destroy(ctx, batch_fail2);
+    secp256k1_batch_destroy(CTX, batch_fail1);
+    secp256k1_batch_destroy(CTX, batch_fail2);
 }
 #undef N_SIGS
 /* ONE_SIG is undefined after `test_batch_add_schnorrsig_api` */
@@ -228,12 +228,12 @@ void test_batch_add_schnorrsig_api(void) {
     secp256k1_batch *batch2 = secp256k1_batch_create(none, 2*ONE_SIG, NULL);
     int ecount;
 
-    secp256k1_context_set_error_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(vrfy, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(vrfy, counting_illegal_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(vrfy, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(vrfy, counting_callback_fn, &ecount);
 
     /** generate keypair data **/
     testrand256(sk);
@@ -288,9 +288,9 @@ void test_batch_add_schnorrsig_api(void) {
     CHECK(ecount == 0);
 
     ecount = 0;
-    secp256k1_batch_destroy(ctx, batch1);
+    secp256k1_batch_destroy(CTX, batch1);
     CHECK(ecount == 0);
-    secp256k1_batch_destroy(ctx, batch2);
+    secp256k1_batch_destroy(CTX, batch2);
     CHECK(ecount == 0);
 
     secp256k1_context_destroy(none);
@@ -304,7 +304,7 @@ void run_batch_add_schnorrsig_tests(void) {
 
     run_batch_schnorrsig_randomizer_gen_tests();
     test_batch_add_schnorrsig_api();
-    for (i = 0; i < count; i++) {
+    for (i = 0; i < COUNT; i++) {
         test_schnorrsig_sign_batch_verify();
     }
 }

@@ -48,7 +48,7 @@ void run_batch_xonlypub_tweak_randomizer_gen_tests(void) {
         args[2] = internal_pk;
         args[3] = tweak;
 
-        for (j = 0; j < count; j++) {
+        for (j = 0; j < COUNT; j++) {
             batch_xonlypub_tweak_randomizer_gen_bitflip(&sha, args, 0, 32);
             batch_xonlypub_tweak_randomizer_gen_bitflip(&sha, args, 1, 1);
             batch_xonlypub_tweak_randomizer_gen_bitflip(&sha, args, 2, 33);
@@ -86,12 +86,12 @@ void test_batch_add_xonlypub_tweak_api(void) {
     secp256k1_batch *batch2 = secp256k1_batch_create(none, 1, NULL);
     int ecount;
 
-    secp256k1_context_set_error_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_error_callback(vrfy, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(none, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(sign, counting_illegal_callback_fn, &ecount);
-    secp256k1_context_set_illegal_callback(vrfy, counting_illegal_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_error_callback(vrfy, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(none, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(sign, counting_callback_fn, &ecount);
+    secp256k1_context_set_illegal_callback(vrfy, counting_callback_fn, &ecount);
 
     /** generate keypair data **/
     testrand256(sk);

@@ -197,7 +197,7 @@ static void test_schnorrsig_bip_vectors_check_signing(const unsigned char *sk, c
 }
 
 /* Helper function for schnorrsig_bip_vectors
- * Checks that both verify and verify_batch (TODO) return the same value as expected. */
+ * Checks that schnorrsig_verify returns the same value as expected. */
 static void test_schnorrsig_bip_vectors_check_verify(const unsigned char *pk_serialized, const unsigned char *msg, size_t msglen, const unsigned char *sig, int expected) {
     secp256k1_xonly_pubkey pk;
 
@@ -212,13 +212,13 @@ void test_schnorrsig_bip_vectors_check_batch_verify(const unsigned char *pk_seri
     secp256k1_xonly_pubkey pk;
     secp256k1_batch *batch;
 
-    CHECK(secp256k1_xonly_pubkey_parse(ctx, &pk, pk_serialized));
-    batch = secp256k1_batch_create(ctx, 2, NULL);
+    CHECK(secp256k1_xonly_pubkey_parse(CTX, &pk, pk_serialized));
+    batch = secp256k1_batch_create(CTX, 2, NULL);
     CHECK(batch != NULL);
-    CHECK(secp256k1_batch_usable(ctx, batch) == 1);
-    CHECK(add_expected == secp256k1_batch_add_schnorrsig(ctx, batch, sig, msg32, 32, &pk));
-    CHECK(verify_expected == secp256k1_batch_verify(ctx, batch));
-    secp256k1_batch_destroy(ctx, batch);
+    CHECK(secp256k1_batch_usable(CTX, batch) == 1);
+    CHECK(add_expected == secp256k1_batch_add_schnorrsig(CTX, batch, sig, msg32, 32, &pk));
+    CHECK(verify_expected == secp256k1_batch_verify(CTX, batch));
+    secp256k1_batch_destroy(CTX, batch);
 }
 #endif
 
