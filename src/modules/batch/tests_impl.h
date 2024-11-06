@@ -38,6 +38,13 @@ void test_batch_sha256_tagged(void) {
 #define N_TWK_CHECKS 10
 #define N_TERMS (N_TWK_CHECKS + 2*N_SIGS)
 void test_batch_api(void) {
+    secp256k1_batch *batch_none;
+    secp256k1_batch *batch_sign;
+    secp256k1_batch *batch_vrfy;
+    secp256k1_batch *batch_both;
+    secp256k1_batch *batch_sttc;
+    unsigned char aux_rand16[32];
+    int ecount;
 
 #ifdef ENABLE_MODULE_EXTRAKEYS
     unsigned char sk[32];
@@ -64,9 +71,6 @@ void test_batch_api(void) {
     secp256k1_context *both = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
     secp256k1_context *sttc = malloc(sizeof(*secp256k1_context_no_precomp));
     memcpy(sttc, secp256k1_context_no_precomp, sizeof(secp256k1_context));
-
-    unsigned char aux_rand16[32];
-    int ecount;
 
     secp256k1_context_set_error_callback(none, counting_callback_fn, &ecount);
     secp256k1_context_set_error_callback(sign, counting_callback_fn, &ecount);
@@ -111,21 +115,21 @@ void test_batch_api(void) {
     /** main test body **/
     /* batch_create tests */
     ecount = 0;
-    secp256k1_batch *batch_none = secp256k1_batch_create(none, 1, NULL);
+    batch_none = secp256k1_batch_create(none, 1, NULL);
     CHECK(batch_none != NULL);
     CHECK(ecount == 0);
     /* 2*N_SIGS since one schnorrsig creates two scalar-point pair in batch */
-    secp256k1_batch *batch_sign = secp256k1_batch_create(sign, 2*N_SIGS, NULL);
+    batch_sign = secp256k1_batch_create(sign, 2*N_SIGS, NULL);
     CHECK(batch_sign != NULL);
     CHECK(ecount == 0);
-    secp256k1_batch *batch_vrfy = secp256k1_batch_create(vrfy, N_TWK_CHECKS - 1, aux_rand16);
+    batch_vrfy = secp256k1_batch_create(vrfy, N_TWK_CHECKS - 1, aux_rand16);
     CHECK(batch_vrfy != NULL);
     CHECK(ecount == 0);
-    secp256k1_batch *batch_both = secp256k1_batch_create(both, N_TERMS/4, aux_rand16);
+    batch_both = secp256k1_batch_create(both, N_TERMS/4, aux_rand16);
     CHECK(batch_both != NULL);
     CHECK(ecount == 0);
     /* ARG_CHECK(max_terms != 0) in `batch_create` should fail*/
-    secp256k1_batch *batch_sttc = secp256k1_batch_create(sttc, 0, NULL);
+    batch_sttc = secp256k1_batch_create(sttc, 0, NULL);
     CHECK(batch_sttc == NULL);
     CHECK(ecount == 1);
 

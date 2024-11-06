@@ -4865,11 +4865,6 @@ void ecmult_multi_random_generate_inp(secp256k1_gej *expected, secp256k1_scalar 
     secp256k1_ge ge_tmp;
 
     int i;
-    /* Which multiplication function to use */
-    int fn = testrand_int(3);
-    secp256k1_ecmult_multi_func ecmult_multi = fn == 0 ? secp256k1_ecmult_multi_var :
-                                               fn == 1 ? secp256k1_ecmult_strauss_batch_single :
-                                               secp256k1_ecmult_pippenger_batch_single;
     int filled = 0;
     /* Simulate exponentially distributed num. */
     int num_bits = 2 + testrand_int(6);
@@ -4885,7 +4880,7 @@ void ecmult_multi_random_generate_inp(secp256k1_gej *expected, secp256k1_scalar 
                     num_nonzero == 1 && !nonzero_result ? 1 :
                     (int)testrand_bits(1);
     /* Which g_scalar pointer to pass into ecmult_multi(). */
-    const secp256k1_scalar* g_scalar_ptr = (g_nonzero || testrand_bits(1)) ? &g_scalar : NULL;
+    secp256k1_scalar* g_scalar_ptr = (g_nonzero || testrand_bits(1)) ? g_scalar : NULL;
     /* How many EC multiplications were performed in this function. */
     int mults = 0;
     /* How many randomization steps to apply to the input list. */
@@ -4898,12 +4893,12 @@ void ecmult_multi_random_generate_inp(secp256k1_gej *expected, secp256k1_scalar 
 
     if (g_nonzero) {
         /* If g_nonzero, set g_scalar to nonzero value r. */
-        testutil_random_scalar_order_test(&g_scalar);
+        testutil_random_scalar_order_test(g_scalar);
         if (!nonzero_result) {
             /* If expected=0 is desired, add a (a*r, -(1/a)*g) term to compensate. */
             CHECK(num_nonzero > filled);
             testutil_random_scalar_order_test(&sc_tmp);
-            secp256k1_scalar_mul(&scalars[filled], &sc_tmp, &g_scalar);
+            secp256k1_scalar_mul(&scalars[filled], &sc_tmp, g_scalar);
             secp256k1_scalar_inverse_var(&sc_tmp, &sc_tmp);
             secp256k1_scalar_negate(&sc_tmp, &sc_tmp);
             secp256k1_ecmult_gen(&CTX->ecmult_gen_ctx, &gejs[filled], &sc_tmp);
