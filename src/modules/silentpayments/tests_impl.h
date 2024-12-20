@@ -7,7 +7,7 @@
 #define SECP256K1_MODULE_SILENTPAYMENTS_TESTS_H
 
 #include "../../../include/secp256k1_silentpayments.h"
-#include "include/secp256k1.h"
+#include "../../../include/secp256k1.h"
 
 /** Constants
  *
@@ -86,6 +86,20 @@ static unsigned char ALICE_SECKEY[32] = {
     0x8a,0x4c,0x53,0xf6,0xe0,0x50,0x7b,0x42,
     0x15,0x42,0x01,0xb8,0xe5,0xdf,0xf3,0xb1
 };
+static unsigned char KEYS_SUM_TO_N[2][32] = {
+    {
+        0xea,0xdc,0x78,0x16,0x5f,0xf1,0xf8,0xea,
+        0x94,0xad,0x7c,0xfd,0xc5,0x49,0x90,0x73,
+        0x8a,0x4c,0x53,0xf6,0xe0,0x50,0x7b,0x42,
+        0x15,0x42,0x01,0xb8,0xe5,0xdf,0xf3,0xb1
+    },
+    {
+        0x15,0x23,0x87,0xe9,0xa0,0x0e,0x07,0x15,
+        0x6b,0x52,0x83,0x02,0x3a,0xb6,0x6f,0x8b,
+        0x30,0x62,0x88,0xef,0xce,0xf8,0x24,0xf9,
+        0xaa,0x90,0x5c,0xd3,0xea,0x56,0x4d,0x90
+    }
+};
 
 static void test_recipient_sort_helper(unsigned char (*sp_addresses[3])[2][33], unsigned char (*sp_outputs[3])[32]) {
     unsigned char const *seckey_ptrs[1];
@@ -159,6 +173,13 @@ static void test_recipient_sort(void) {
     test_recipient_sort_helper(sp_addresses, sp_outputs);
 }
 
+static void test_send_api_with_keys_that_sum_to_N_fails(secp256k1_xonly_pubkey **op, const secp256k1_silentpayments_recipient **rp, int n_receipients) {
+    unsigned char const *p[2];
+    p[0] = KEYS_SUM_TO_N[0];
+    p[1] = KEYS_SUM_TO_N[1];
+    CHECK(secp256k1_silentpayments_sender_create_outputs(CTX, op, rp, n_receipients, SMALLEST_OUTPOINT, NULL, 0, p, 2) == 0);
+}
+
 static void test_send_api(void) {
     unsigned char (*sp_addresses[2])[2][33];
     unsigned char const *p[1];
@@ -207,6 +228,9 @@ static void test_send_api(void) {
     CHECK_ILLEGAL(CTX, secp256k1_silentpayments_sender_create_outputs(CTX, op, rp, 0, SMALLEST_OUTPOINT, NULL, 0, p, 1));
     CHECK_ILLEGAL(CTX, secp256k1_silentpayments_sender_create_outputs(CTX, op, rp, 2, SMALLEST_OUTPOINT, t, 0, p, 1));
     CHECK_ILLEGAL(CTX, secp256k1_silentpayments_sender_create_outputs(CTX, op, rp, 2, SMALLEST_OUTPOINT, t, 1, p, 0));
+
+    /* Keys that sum to N cannot be used */
+    test_send_api_with_keys_that_sum_to_N_fails(op, rp, 2);
 
     /* Create malformed keys for Alice by using a key that will overflow */
     p[0] = ORDERC;
