@@ -328,8 +328,12 @@ static void test_send_api(void) {
 
 static void test_label_api(void) {
     secp256k1_silentpayments_label l;
+    secp256k1_silentpayments_label batch_l[2];
+    secp256k1_silentpayments_label *batch_l_ptrs[2];
     secp256k1_pubkey s, ls, e;   /* spend pk, labeled spend pk, expected labeled spend pk */
     unsigned char lt[32];        /* label tweak */
+    unsigned char batch_lt[2][32];        /* batch label tweak */
+    unsigned char *batch_lt_ptrs[2];
     unsigned char label_ser[33]; /* serialized label */
     const unsigned char expected[33] = {
         0x03, 0xdc, 0x7f, 0x09, 0x9a, 0xbe, 0x95, 0x7a,
@@ -339,11 +343,21 @@ static void test_label_api(void) {
         0x91
     };
 
+    batch_l_ptrs[0] = &batch_l[0];
+    batch_l_ptrs[1] = &batch_l[1];
+    batch_lt_ptrs[0] = batch_lt[0];
+    batch_lt_ptrs[1] = batch_lt[1];
+
     /* Create a label and labeled spend public key, verify we get the expected result */
     CHECK(secp256k1_ec_pubkey_parse(CTX, &s, BOB_ADDRESS[1], 33));
     CHECK(secp256k1_silentpayments_recipient_label_create(CTX, &l, lt, ALICE_SECKEY, 1));
     CHECK(secp256k1_silentpayments_recipient_create_labeled_spend_pubkey(CTX, &ls, &s, &l));
     CHECK(secp256k1_ec_pubkey_parse(CTX, &e, expected, 33));
+    CHECK(secp256k1_ec_pubkey_cmp(CTX, &ls, &e) == 0);
+
+    /* Create a label and labeled spend public key using the batch api, verify we get the expected result */
+    CHECK(secp256k1_silentpayments_recipient_batch_label_create(CTX, batch_l_ptrs, batch_lt_ptrs, ALICE_SECKEY, 2));
+    CHECK(secp256k1_silentpayments_recipient_create_labeled_spend_pubkey(CTX, &ls, &s, &batch_l[1]));
     CHECK(secp256k1_ec_pubkey_cmp(CTX, &ls, &e) == 0);
 
     /* Check label (de)serialization round-trip */

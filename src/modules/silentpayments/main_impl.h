@@ -17,6 +17,7 @@
 #include "../../group.h"
 #include "../../hash.h"
 #include "../../hsort.h"
+#include "../../scalar_impl.h"
 
 /** magic bytes for ensuring prevouts_summary objects were initialized correctly. */
 static const unsigned char secp256k1_silentpayments_prevouts_summary_magic[4] = { 0xa7, 0x1c, 0xd3, 0x5e };
@@ -418,6 +419,74 @@ int secp256k1_silentpayments_recipient_label_create(const secp256k1_context *ctx
     secp256k1_scalar_clear(&label_tweak_scalar);
     secp256k1_memclear_explicit(m_serialized, sizeof(m_serialized));
     secp256k1_sha256_clear(&hash);
+
+    return ret;
+}
+
+int secp256k1_silentpayments_recipient_batch_label_create(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_label **label,
+    unsigned char **label_tweak32,
+    const unsigned char *scan_key32,
+    uint32_t n
+) {
+    secp256k1_sha256 hash;
+    unsigned char m_serialized[4];
+    secp256k1_ge label_ge[100];
+    secp256k1_gej label_gej[100];
+    secp256k1_scalar label_tweak_scalar;
+    uint32_t batch_size = 100;
+    uint32_t i, j, k, l, m, n_batches;
+    int ret;
+
+    /* Sanity check inputs. */
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(label != NULL);
+    ARG_CHECK(label_tweak32 != NULL);
+    ARG_CHECK(n > 0);
+    for (i = 0; i < n; i++) {
+        ARG_CHECK(label[i] != NULL);
+        ARG_CHECK(label_tweak32[i] != NULL);
+    }
+    ARG_CHECK(secp256k1_ecmult_gen_context_is_built(&ctx->ecmult_gen_ctx));
+    ARG_CHECK(scan_key32 != NULL);
+
+    /* ensure that the passed scan key is valid, in order to avoid creating unspendable labels */
+    ret = secp256k1_ec_seckey_verify(ctx, scan_key32);
+
+    n_batches = ((n - 1) / batch_size) + 1;
+    for (i = 0; i < n_batches; i++) {
+        /* Ensure that the last batch doesn't create more labels than required */
+        k = n - (i * batch_size);
+        k = k < batch_size ? k : batch_size;
+
+        for (j = 0; j < k; j++) {
+            m = (i * batch_size) + j;
+            /* Compute hash(ser_256(b_scan) || ser_32(m))  [sha256 with tag "BIP0352/Label"] */
+            secp256k1_silentpayments_sha256_init_label(&hash);
+            secp256k1_sha256_write(&hash, scan_key32, 32);
+            secp256k1_write_be32(m_serialized, m);
+            secp256k1_sha256_write(&hash, m_serialized, sizeof(m_serialized));
+            secp256k1_sha256_finalize(&hash, label_tweak32[m]);
+
+            ret &= secp256k1_scalar_set_b32_seckey(&label_tweak_scalar, label_tweak32[m]);
+            secp256k1_scalar_cmov(&label_tweak_scalar, &secp256k1_scalar_one, !ret);
+
+            secp256k1_ecmult_gen(&ctx->ecmult_gen_ctx, &label_gej[j], &label_tweak_scalar);
+
+            secp256k1_scalar_clear(&label_tweak_scalar);
+            secp256k1_memclear_explicit(m_serialized, sizeof(m_serialized));
+            secp256k1_sha256_clear(&hash);
+        }
+
+        /* Batch convert to labels*/
+        secp256k1_ge_set_all_gej_var(label_ge, label_gej, k);
+        for (l = 0; l < k; l++) {
+            m = (i * batch_size) + l;
+            secp256k1_silentpayments_label_save(label[m], &label_ge[l]);
+            secp256k1_gej_clear(&label_gej[l]);
+        }
+    }
 
     return ret;
 }

@@ -189,6 +189,17 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_silentpayments_recipien
     uint32_t m
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4);
 
+/** Create multiple Silent Payments label tweak and label.
+ * 
+ */
+int secp256k1_silentpayments_recipient_batch_label_create(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_label **label,
+    unsigned char **label_tweak32,
+    const unsigned char *scan_key32,
+    uint32_t n
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4);
+
 /** Create Silent Payments labeled spend public key.
  *
  *  Given a recipient's spend public key and a label, calculate the
