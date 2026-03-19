@@ -19,6 +19,8 @@
 #include "../../hsort.h"
 #include "../../scalar_impl.h"
 
+#define SECP256K1_SILENTPAYMENTS_BATCH_SIZE 10
+
 /** magic bytes for ensuring prevouts_summary objects were initialized correctly. */
 static const unsigned char secp256k1_silentpayments_prevouts_summary_magic[4] = { 0xa7, 0x1c, 0xd3, 0x5e };
 
@@ -432,10 +434,9 @@ int secp256k1_silentpayments_recipient_batch_label_create(
 ) {
     secp256k1_sha256 hash;
     unsigned char m_serialized[4];
-    secp256k1_ge label_ge[100];
-    secp256k1_gej label_gej[100];
+    secp256k1_ge label_ge[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    secp256k1_gej label_gej[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
     secp256k1_scalar label_tweak_scalar;
-    uint32_t batch_size = 100;
     uint32_t i, j, k, l, m, n_batches;
     int ret;
 
@@ -454,14 +455,14 @@ int secp256k1_silentpayments_recipient_batch_label_create(
     /* ensure that the passed scan key is valid, in order to avoid creating unspendable labels */
     ret = secp256k1_ec_seckey_verify(ctx, scan_key32);
 
-    n_batches = ((n - 1) / batch_size) + 1;
+    n_batches = ((n - 1) / SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + 1;
     for (i = 0; i < n_batches; i++) {
         /* Ensure that the last batch doesn't create more labels than required */
-        k = n - (i * batch_size);
-        k = k < batch_size ? k : batch_size;
+        k = n - (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE);
+        k = k < SECP256K1_SILENTPAYMENTS_BATCH_SIZE ? k : SECP256K1_SILENTPAYMENTS_BATCH_SIZE;
 
         for (j = 0; j < k; j++) {
-            m = (i * batch_size) + j;
+            m = (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + j;
             /* Compute hash(ser_256(b_scan) || ser_32(m))  [sha256 with tag "BIP0352/Label"] */
             secp256k1_silentpayments_sha256_init_label(&hash);
             secp256k1_sha256_write(&hash, scan_key32, 32);
@@ -482,7 +483,7 @@ int secp256k1_silentpayments_recipient_batch_label_create(
         /* Batch convert to labels*/
         secp256k1_ge_set_all_gej_var(label_ge, label_gej, k);
         for (l = 0; l < k; l++) {
-            m = (i * batch_size) + l;
+            m = (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + l;
             secp256k1_silentpayments_label_save(label[m], &label_ge[l]);
             secp256k1_gej_clear(&label_gej[l]);
         }

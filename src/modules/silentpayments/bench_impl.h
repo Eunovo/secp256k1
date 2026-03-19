@@ -7,7 +7,10 @@
 #ifndef SECP256K1_MODULE_SILENTPAYMENTS_BENCH_H
 #define SECP256K1_MODULE_SILENTPAYMENTS_BENCH_H
 
+#include <stdio.h>
 #include "../../../include/secp256k1_silentpayments.h"
+
+#define NUM_LABELS 10
 
 typedef struct {
     secp256k1_context *ctx;
@@ -128,6 +131,42 @@ static void bench_silentpayments_full_scan_with_labels(void *arg, int iters) {
     bench_silentpayments_full_tx_scan(arg, iters, 1);
 }
 
+static void bench_silentpayments_label_create(void *arg, int iters) {
+    secp256k1_silentpayments_label label;
+    unsigned char label_tweak[32];
+    int i;
+
+    bench_silentpayments_data *data = (bench_silentpayments_data*)arg;
+    for (i = 0; i < iters; i++) {
+        CHECK(secp256k1_silentpayments_recipient_label_create(
+            data->ctx,
+            &label, label_tweak,
+            data->scan_key, 0)
+        );
+    }
+}
+
+static void bench_silentpayments_batch_label_create(void *arg, int iters) {
+    secp256k1_silentpayments_label labels[NUM_LABELS];
+    secp256k1_silentpayments_label *label_ptrs[NUM_LABELS];
+    unsigned char label_tweaks[NUM_LABELS][32];
+    unsigned char *label_tweak_ptrs[NUM_LABELS];
+    int i;
+    bench_silentpayments_data *data = (bench_silentpayments_data*)arg;
+
+    for (i = 0; i < NUM_LABELS; i++) {
+        label_ptrs[i] = &labels[i];
+        label_tweak_ptrs[i] = label_tweaks[i];
+    }
+    for (i = 0; i < iters; i++) {
+        CHECK(secp256k1_silentpayments_recipient_batch_label_create(
+            data->ctx,
+            label_ptrs, label_tweak_ptrs,
+            data->scan_key, NUM_LABELS)
+        );
+    }
+}
+
 static void run_silentpayments_bench(int iters, int argc, char** argv) {
     bench_silentpayments_data data;
     int d = argc == 1;
@@ -136,6 +175,13 @@ static void run_silentpayments_bench(int iters, int argc, char** argv) {
 
     if (d || have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_full_scan")) run_benchmark("silentpayments_full_scan", bench_silentpayments_full_scan, bench_silentpayments_scan_setup, NULL, &data, 10, iters);
     if (d || have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_full_scan_with_labels")) run_benchmark("silentpayments_full_scan_with_labels", bench_silentpayments_full_scan_with_labels, bench_silentpayments_scan_setup, NULL, &data, 10, iters);
+    if (d || have_flag(argc, argv, "silentpayments")) {
+        char batch_label_create_bench_name[64];
+        sprintf(batch_label_create_bench_name, "silentpayments_batch_create_%ulabels", NUM_LABELS);
+
+        run_benchmark("silentpayments_create_label", bench_silentpayments_label_create, bench_silentpayments_scan_setup, NULL, &data, 10, iters);
+        run_benchmark(batch_label_create_bench_name, bench_silentpayments_batch_label_create, bench_silentpayments_scan_setup, NULL, &data, 10, iters);
+    }
 
     secp256k1_context_destroy(data.ctx);
 }
