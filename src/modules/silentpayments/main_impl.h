@@ -815,4 +815,393 @@ int secp256k1_silentpayments_recipient_scan_outputs(
     return 1;
 }
 
+/** Check all labels in a batch and populate found_outputs.
+ *
+ *  Returns: the number of outputs found
+ */
+uint32_t secp256k1_silentpayments_check_all_labels(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_found_output **found_outputs,
+    secp256k1_ge *label_ge,
+    uint32_t label_batch_size,
+    const unsigned char **tweaks, const uint32_t *idxs,
+    const secp256k1_xonly_pubkey **tx_outputs,
+    const secp256k1_silentpayments_label_lookup label_lookup,
+    const void *label_context
+) {
+    uint32_t l, found_count = 0;
+    const unsigned char *label_tweak;
+
+    for (l = 0; l < label_batch_size; l++) {
+        unsigned char label33[33];
+        /* Serialize must succeed because the point was just loaded.
+        *
+        * Note: serialize will also fail if label_ge is the point at infinity, but we know
+        * this cannot happen since we only hit this branch if tx_output != output_xonly.
+        * Thus, we know that label_ge = tx_output_gej + output_negated_ge cannot be the
+        * point at infinity.
+        */
+        secp256k1_eckey_pubkey_serialize33(&label_ge[l], label33);
+        label_tweak = label_lookup(label33, label_context);
+        if (label_tweak == NULL) {
+            continue;
+        }
+        memcpy(found_outputs[found_count]->tweak, tweaks[l], 32);
+        /* This is extremely unlikely to fail in that it can only really fail if label_tweak
+        * is the negation of the shared secret tweak. But since both tweak and label_tweak are
+        * created by hashing data, practically speaking this would only happen if an attacker
+        * tricked us into using a particular label_tweak (deviating from the protocol).
+        *
+        * Furthermore, although technically a failure for ec_seckey_tweak_add, this is not treated
+        * as a failure for Silent Payments because the output is still spendable with just the
+        * spend secret key. We set `tweak = 0` for this case.
+        */
+        if (!secp256k1_ec_seckey_tweak_add(ctx, found_outputs[found_count]->tweak, label_tweak)) {
+            memset(found_outputs[found_count]->tweak, 0, 32);
+        }
+        found_outputs[found_count]->found_with_label = 1;
+        found_outputs[found_count]->output = *tx_outputs[idxs[l]];
+        tx_outputs[idxs[l]] = NULL;
+        found_outputs[found_count]->index = idxs[l];
+        secp256k1_silentpayments_label_save(&found_outputs[found_count]->label, &label_ge[l]);
+        found_count++;
+    }
+    return found_count;
+}
+
+uint32_t secp256k1_silentpayments_check_labels_for_outputs(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_found_output **found_outputs,
+    secp256k1_ge *output_ge, uint32_t n_outputs,
+    unsigned char (*tweaks)[32],
+    const secp256k1_xonly_pubkey **tx_outputs, uint32_t n_tx_outputs,
+    const secp256k1_silentpayments_prevouts_summary **prevouts_summary,
+    const uint32_t *origin_idxs,
+    const secp256k1_silentpayments_label_lookup label_lookup,
+    const void *label_context
+) {
+    secp256k1_ge label_ge[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    secp256k1_gej label_gej[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    const unsigned char *tweak_ptrs[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    uint32_t label_batch_size = 0, iter = 0, tx_start = origin_idxs[0];
+    uint32_t candidate = 0, all_checked = 1, idxs[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    uint32_t i, j, found_idx = 0;
+
+    while (!all_checked || !candidate) {
+        all_checked = 1;
+        /* Batch index, j: points to the current generated output being evaluated */
+        j = 0;
+        /* Start loop from first output of first tx in batch */
+        for (i = tx_start; i < n_tx_outputs && j < n_outputs; i++) {
+            secp256k1_ge output_negated_ge, tx_output_ge;
+            secp256k1_gej tx_output_gej;
+
+            if (i > 0 && prevouts_summary[i-1] != prevouts_summary[i]) {
+                /* Loop has crossed Tx boundary */
+                tx_start = i;
+            }
+            if (prevouts_summary[origin_idxs[j]] != prevouts_summary[i] ||
+                iter != i - tx_start ||
+                secp256k1_ge_is_infinity(&output_ge[j]) ||
+                tx_outputs[i] == NULL) {
+                /* The output at j wasn't generated from this prevouts_summary OR
+                 * Current output is not the output to be checked for this iteration OR
+                 * Generated Output already found or is invalid OR
+                 * Tx output already matched
+                 */
+                continue;
+            }
+
+            secp256k1_xonly_pubkey_load(ctx, &tx_output_ge, tx_outputs[i]);
+            secp256k1_gej_set_ge(&tx_output_gej, &tx_output_ge);
+            secp256k1_ge_neg(&output_negated_ge, &output_ge[j]);
+
+            if (candidate == 0) {
+                /* First Label Candidate:
+                 * Negate the generated output and calculate first scan label candidate:
+                 *     label1 = tx_output - generated_output
+                 */
+                secp256k1_gej_add_ge_var(&label_gej[label_batch_size], &tx_output_gej, &output_negated_ge, NULL);
+            } else {
+                /** Second Label Candidate:
+                 * negate the tx_output and calculate second scan label candidate:
+                 *     label2 = -tx_output - generated_output
+                 */
+                secp256k1_gej_neg(&label_gej[label_batch_size], &tx_output_gej);
+                secp256k1_gej_add_ge_var(&label_gej[label_batch_size], &label_gej[label_batch_size], &output_negated_ge, NULL);
+            }
+            idxs[label_batch_size] = i;
+            tweak_ptrs[label_batch_size] = tweaks[j];
+            label_batch_size++;
+            all_checked = 0;
+            j++; /* Advance to next generated output */
+
+            if (label_batch_size >= SECP256K1_SILENTPAYMENTS_BATCH_SIZE) {
+                uint32_t n_found;
+                secp256k1_ge_set_all_gej_var(label_ge, label_gej, label_batch_size);
+                n_found = secp256k1_silentpayments_check_all_labels(
+                    ctx, &found_outputs[found_idx], label_ge, label_batch_size,
+                    tweak_ptrs, idxs, tx_outputs, label_lookup, label_context
+                );
+                found_idx += n_found;
+                label_batch_size = 0;
+            }
+        }
+        /* Advance to the next output in each Tx */
+        iter++;
+
+        if (all_checked && !candidate) {
+            candidate = 1;
+            all_checked = 0;
+            iter = 0;
+        }
+        if (label_batch_size > 0) {
+            uint32_t n_found;
+            secp256k1_ge_set_all_gej_var(label_ge, label_gej, label_batch_size);
+            n_found = secp256k1_silentpayments_check_all_labels(
+                ctx, &found_outputs[found_idx], label_ge, label_batch_size,
+                tweak_ptrs, idxs, tx_outputs, label_lookup, label_context
+            );
+            found_idx += n_found;
+            label_batch_size = 0;
+        }
+    }
+    return found_idx;
+}
+
+int secp256k1_silentpayments_recipient_batch_scan_outputs(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_found_output **found_outputs, uint32_t *n_found_outputs,
+    const secp256k1_xonly_pubkey **tx_outputs, uint32_t n_tx_outputs,
+    const secp256k1_silentpayments_prevouts_summary **prevouts_summary,
+    const unsigned char *scan_key32,
+    const secp256k1_pubkey *spend_pubkey,
+    uint32_t k,
+    const secp256k1_silentpayments_label_lookup label_lookup,
+    const void *label_context
+) {
+    secp256k1_scalar output_tweak_scalar, scan_key_scalar;
+    secp256k1_ge spend_pubkey_ge, prevouts_pubkey_sum_ge;
+    secp256k1_ge output_ge[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    secp256k1_gej output_gej[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    unsigned char shared_secret[33];
+    unsigned char tweaks[SECP256K1_SILENTPAYMENTS_BATCH_SIZE][32];
+    uint32_t i, j, l, batch_size, found_idx = 0, origin_idxs[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    int combined, valid_scan_key, ret;
+
+    /* Sanity check inputs */
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(found_outputs != NULL);
+    ARG_CHECK(n_found_outputs != NULL);
+    ARG_CHECK(tx_outputs != NULL);
+    ARG_CHECK(n_tx_outputs > 0);
+    for (j = 0; j < n_tx_outputs; j++) {
+        ARG_CHECK(found_outputs[j] != NULL);
+        ARG_CHECK(tx_outputs[j] != NULL);
+    }
+    ARG_CHECK(prevouts_summary != NULL);
+    for (j = 0; j < n_tx_outputs; j++) {
+        ARG_CHECK(prevouts_summary[j] != NULL);
+        ARG_CHECK(secp256k1_memcmp_var(&prevouts_summary[j]->data[0], secp256k1_silentpayments_prevouts_summary_magic, 4) == 0);
+    }
+    ARG_CHECK(scan_key32 != NULL);
+    ARG_CHECK(spend_pubkey != NULL);
+    /* Passing a context without a lookup function is non-sensical */
+    if (label_context != NULL) {
+        ARG_CHECK(label_lookup != NULL);
+    }
+    ret = secp256k1_pubkey_load(ctx, &spend_pubkey_ge, spend_pubkey);
+    if (!ret) {
+        return 0;
+    }
+
+    i = 0;
+    while (i < n_tx_outputs) {
+        batch_size = 0;
+        while (batch_size < SECP256K1_SILENTPAYMENTS_BATCH_SIZE) {
+            if (i == n_tx_outputs) {
+                break;
+            }
+            if (i > 0 && prevouts_summary[i-1] == prevouts_summary[i]) {
+                i++;
+                continue;
+            }
+            valid_scan_key = secp256k1_scalar_set_b32_seckey(&scan_key_scalar, scan_key32);
+            secp256k1_declassify(ctx, &valid_scan_key, sizeof(valid_scan_key));
+            if (!valid_scan_key) {
+                secp256k1_scalar_clear(&scan_key_scalar);
+                return 0;
+            }
+            secp256k1_ge_from_bytes(&prevouts_pubkey_sum_ge, &prevouts_summary[i]->data[5]);
+            combined = (int)prevouts_summary[i]->data[4];
+            if (!combined) {
+                secp256k1_scalar input_hash_scalar;
+                secp256k1_scalar_set_b32(&input_hash_scalar, &prevouts_summary[i]->data[5 + 64], NULL);
+                secp256k1_scalar_mul(&scan_key_scalar, &scan_key_scalar, &input_hash_scalar);
+            }
+
+            /* Creating the shared secret requires that the public and secret components are
+                * non-infinity and non-zero, respectively. Note that the involved parts (input hash,
+                * scan secret key, and prevouts public key sum) have all been verified at this point,
+                * assuming that the user hasn't tampered the `prevouts_summary` object manually.
+            */
+            secp256k1_silentpayments_create_shared_secret(ctx, shared_secret, &prevouts_pubkey_sum_ge, &scan_key_scalar);
+            /* Clear the scan_key_scalar since we no longer need it and leaking this value would break indistinguishability of the transaction. */
+            secp256k1_scalar_clear(&scan_key_scalar);
+
+            /* Calculate the output_tweak and convert it to a scalar.
+                *
+                * Note: _create_output_tweak can only fail if the output of the hash function is zero or greater than or equal
+                * to the curve order, which is statistically improbable. Returning an error here results in an untestable
+                * branch in the code, but we do this anyways to ensure strict compliance with BIP0352.
+            */
+            if (!secp256k1_silentpayments_create_output_tweak(&output_tweak_scalar, shared_secret, k)) {
+                secp256k1_scalar_clear(&output_tweak_scalar);
+                secp256k1_memclear_explicit(&shared_secret, sizeof(shared_secret));
+                return 0;
+            }
+
+            output_ge[batch_size] = spend_pubkey_ge;
+
+            /* Calculate output = spend_pubkey + output_tweak * G.
+             * This can fail if output_tweak * G is the negation of spend_pubkey, but this happens only
+             * with negligible probability for honestly created spend_pubkey as output_tweak is the output of a hash function. */
+            secp256k1_gej_set_ge(&output_gej[batch_size], &output_ge[batch_size]);
+            secp256k1_ecmult(&output_gej[batch_size], &output_gej[batch_size], &secp256k1_scalar_one, &output_tweak_scalar);
+            secp256k1_scalar_get_b32(tweaks[batch_size], &output_tweak_scalar);
+
+            /* Clear the output_tweak_scalar since we no longer need it and leaking this value would
+             * break indistinguishability of the transaction. */
+            secp256k1_scalar_clear(&output_tweak_scalar);
+            secp256k1_memclear_explicit(&shared_secret, sizeof(shared_secret));
+
+            if (secp256k1_gej_is_infinity(&output_gej[batch_size])) {
+                return 0;
+            }
+
+            origin_idxs[batch_size] = i;
+            batch_size++;
+            i++;
+        }
+
+        secp256k1_ge_set_all_gej_var(output_ge, output_gej, batch_size);
+        for (j = 0; j < batch_size; j++) {
+            secp256k1_xonly_pubkey output_xonly;
+            secp256k1_xonly_pubkey_save(&output_xonly, &output_ge[j]);
+            for (l = origin_idxs[j]; l < n_tx_outputs; l++) {
+                if (prevouts_summary[origin_idxs[j]] != prevouts_summary[l]) {
+                    /* The loop has crossed the tx boundary */
+                    break;
+                }
+                if (tx_outputs[l] == NULL || secp256k1_xonly_pubkey_cmp(ctx, &output_xonly, tx_outputs[l]) != 0) {
+                    continue;
+                }
+
+                found_outputs[found_idx]->output = output_xonly;
+                memcpy(found_outputs[found_idx]->tweak, tweaks[j], 32);
+                found_outputs[found_idx]->found_with_label = 0;
+                found_outputs[found_idx]->index = l;
+                /* Set the label public key with an invalid public key value. */
+                memset(&found_outputs[found_idx]->label, 0, sizeof(secp256k1_pubkey));
+                found_idx++;
+                secp256k1_ge_set_infinity(&output_ge[j]);
+                tx_outputs[l] = NULL;
+                break;
+            }
+        }
+
+        if (label_lookup != NULL) {
+            uint32_t n_found;
+
+            n_found = secp256k1_silentpayments_check_labels_for_outputs(
+                ctx, &found_outputs[found_idx],
+                output_ge, batch_size, tweaks,
+                tx_outputs, n_tx_outputs,
+                prevouts_summary, origin_idxs,
+                label_lookup, label_context
+            );
+            found_idx += n_found;
+        }
+        secp256k1_memclear_explicit(tweaks, sizeof(tweaks));
+    }
+    *n_found_outputs = found_idx;
+    return 1;
+}
+
+int secp256k1_silentpayments_recipient_batch_scan_txs(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_found_output **found_outputs, uint32_t *n_found_outputs,
+    const secp256k1_xonly_pubkey **tx_outputs, uint32_t n_tx_outputs,
+    const secp256k1_silentpayments_prevouts_summary **prevouts_summary,
+    const unsigned char *scan_key32,
+    const secp256k1_pubkey *spend_pubkey,
+    const secp256k1_silentpayments_label_lookup label_lookup,
+    const void *label_context
+) {
+    uint32_t i, j, k, n_found = 0, n_outputs_left = n_tx_outputs;
+    int ret;
+
+    for (k = 0; k < 2323; k++) {
+        secp256k1_silentpayments_prevouts_summary const *summary;
+        uint32_t current_n_found;
+
+        if (n_outputs_left == 0) {
+            break;
+        }
+
+        ret = secp256k1_silentpayments_recipient_batch_scan_outputs(
+            ctx, &found_outputs[n_found], &current_n_found,
+            tx_outputs, n_outputs_left,
+            prevouts_summary,
+            scan_key32, spend_pubkey, k,
+            label_lookup, label_context
+        );
+        if (!ret) {
+            return 0;
+        }
+    
+        /** Prepare tx_outputs and prevouts_summary for next iter.
+         *  Remove outputs from txs that were not found for this k.
+         */
+        i = 0;
+        while (i < n_outputs_left) {
+            uint32_t found = 0, start_idx = i;
+
+            summary = prevouts_summary[start_idx];
+            while (summary == prevouts_summary[i] && i < n_outputs_left) {
+                if (tx_outputs[i] == NULL) {
+                    found = 1;
+                }
+                i++;
+            }
+
+            if (found) {
+                continue;
+            }
+
+            for (j = start_idx; j < i; j++) {
+                tx_outputs[j] = NULL;
+            }
+        }
+
+        /* Clear the NULL elements from the array */
+        j = 0;
+        for (i = 0; i < n_outputs_left; i++) {
+            if (tx_outputs[i] != NULL) {
+                if (j != i) {
+                    tx_outputs[j] = tx_outputs[i];
+                    prevouts_summary[j] = prevouts_summary[i];
+                }
+                j++;
+            }
+        }
+
+        n_found += current_n_found;
+        n_outputs_left = j;
+    }
+    *n_found_outputs = n_found;
+    return 1;
+}
+
+
 #endif

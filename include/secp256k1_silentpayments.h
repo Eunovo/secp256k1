@@ -320,6 +320,7 @@ typedef struct secp256k1_silentpayments_found_output {
     unsigned char tweak[32];
     int found_with_label;
     secp256k1_silentpayments_label label;
+    int index;
 } secp256k1_silentpayments_found_output;
 
 /** Scan for Silent Payments transaction outputs.
@@ -376,6 +377,17 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_silentpayments_recipien
     const unsigned char *scan_key32,
     const secp256k1_silentpayments_prevouts_summary *prevouts_summary,
     const secp256k1_pubkey *unlabeled_spend_pubkey,
+    const secp256k1_silentpayments_label_lookup label_lookup,
+    const void *label_context
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(6) SECP256K1_ARG_NONNULL(7) SECP256K1_ARG_NONNULL(8);
+
+int secp256k1_silentpayments_recipient_batch_scan_txs(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_found_output **found_outputs, uint32_t *n_found_outputs,
+    const secp256k1_xonly_pubkey **tx_outputs, uint32_t n_tx_outputs,
+    const secp256k1_silentpayments_prevouts_summary **prevouts_summary,
+    const unsigned char *scan_key32,
+    const secp256k1_pubkey *spend_pubkey,
     const secp256k1_silentpayments_label_lookup label_lookup,
     const void *label_context
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(6) SECP256K1_ARG_NONNULL(7) SECP256K1_ARG_NONNULL(8);
