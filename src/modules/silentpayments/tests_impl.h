@@ -626,19 +626,22 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
     secp256k1_xonly_pubkey xonly_pubkeys_objs[MAX_INPUTS_PER_TEST_CASE];
     secp256k1_xonly_pubkey tx_output_objs[MAX_OUTPUTS_PER_TEST_CASE];
     secp256k1_silentpayments_found_output found_output_objs[MAX_OUTPUTS_PER_TEST_CASE];
+    secp256k1_silentpayments_found_output batch_found_output_objs[MAX_OUTPUTS_PER_TEST_CASE];
     secp256k1_pubkey const *plain_pubkeys[MAX_INPUTS_PER_TEST_CASE];
     secp256k1_xonly_pubkey const *xonly_pubkeys[MAX_INPUTS_PER_TEST_CASE];
-    secp256k1_xonly_pubkey const *tx_outputs[MAX_OUTPUTS_PER_TEST_CASE];
+    secp256k1_xonly_pubkey const *tx_outputs[MAX_OUTPUTS_PER_TEST_CASE], *batch_tx_outputs[MAX_OUTPUTS_PER_TEST_CASE];
     secp256k1_silentpayments_found_output *found_outputs[MAX_OUTPUTS_PER_TEST_CASE];
+    secp256k1_silentpayments_found_output *batch_found_outputs[MAX_OUTPUTS_PER_TEST_CASE];
     secp256k1_pubkey recipient_scan_pubkey;
     secp256k1_pubkey recipient_spend_pubkey;
     secp256k1_silentpayments_label label;
     size_t i,j;
     int match, ret;
-    uint32_t n_found = 0;
-    unsigned char found_output[32];
+    uint32_t n_found = 0, n_batch_found  = 0;
+    unsigned char found_output[32], batch_found_output[32];
     unsigned char found_signatures[10][64];
     secp256k1_silentpayments_prevouts_summary prevouts_summary;
+    secp256k1_silentpayments_prevouts_summary const *prevouts_summary_ptrs[MAX_OUTPUTS_PER_TEST_CASE];
 
 
     /* prepare the inputs */
@@ -658,6 +661,9 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
             test->num_taproot_inputs > 0 ? xonly_pubkeys : NULL, test->num_taproot_inputs,
             test->num_plain_inputs > 0 ? plain_pubkeys : NULL, test->num_plain_inputs
         );
+        for (i = 0; i < test->num_to_scan_outputs; i++) {
+            prevouts_summary_ptrs[i] = &prevouts_summary;
+        }
         secp256k1_context_set_illegal_callback(CTX, NULL, NULL);
         /* We expect exactly one ARG_CHECK if the number of input keys was 0. */
         CHECK(ecount == (test->num_taproot_inputs + test->num_plain_inputs == 0));
@@ -673,7 +679,9 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
     for (i = 0; i < test->num_to_scan_outputs; i++) {
         CHECK(secp256k1_xonly_pubkey_parse(CTX, &tx_output_objs[i], test->to_scan_outputs[i]));
         tx_outputs[i] = &tx_output_objs[i];
+        batch_tx_outputs[i] = &tx_output_objs[i];
         found_outputs[i] = &found_output_objs[i];
+        batch_found_outputs[i] = &batch_found_output_objs[i];
     }
 
     /* scan / spend pubkeys are not in the given data of the recipient part, so let's compute them */
@@ -689,6 +697,13 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
         CHECK(secp256k1_silentpayments_recipient_label_serialize(CTX, cache_entry->label, &label));
         labels_cache.entries_used++;
     }
+    CHECK(secp256k1_silentpayments_recipient_batch_scan_txs(CTX,
+        batch_found_outputs, &n_batch_found,
+        batch_tx_outputs, test->num_to_scan_outputs,
+        prevouts_summary_ptrs,
+        test->scan_seckey, &recipient_spend_pubkey,
+        label_lookup, &labels_cache)
+    );
     CHECK(secp256k1_silentpayments_recipient_scan_outputs(CTX,
         found_outputs, &n_found,
         tx_outputs, test->num_to_scan_outputs,
@@ -697,11 +712,14 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
         &recipient_spend_pubkey,
         label_lookup, &labels_cache)
     );
+    CHECK(n_batch_found == n_found);
+
     for (i = 0; i < n_found; i++) {
         unsigned char full_seckey[32];
         secp256k1_keypair keypair;
         unsigned char signature[64];
         memcpy(&full_seckey, test->spend_seckey, 32);
+        CHECK(secp256k1_memcmp_var(&found_outputs[i]->tweak, &batch_found_outputs[i]->tweak, 32) == 0);
         CHECK(secp256k1_ec_seckey_tweak_add(CTX, full_seckey, found_outputs[i]->tweak));
         CHECK(secp256k1_keypair_create(CTX, &keypair, full_seckey));
         CHECK(secp256k1_schnorrsig_sign32(CTX, signature, MSG32, &keypair, AUX32));
@@ -712,6 +730,8 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
     match = 0;
     for (i = 0; i < n_found; i++) {
         CHECK(secp256k1_xonly_pubkey_serialize(CTX, found_output, &found_outputs[i]->output));
+        CHECK(secp256k1_xonly_pubkey_serialize(CTX, batch_found_output, &batch_found_outputs[i]->output));
+        CHECK(secp256k1_memcmp_var(&found_output, &batch_found_output, 32) == 0);
         for (j = 0; j < test->num_found_output_pubkeys; j++) {
             if (secp256k1_memcmp_var(&found_output, test->found_output_pubkeys[j], 32) == 0) {
                 CHECK(secp256k1_memcmp_var(found_outputs[i]->tweak, test->found_seckey_tweaks[j], 32) == 0);
