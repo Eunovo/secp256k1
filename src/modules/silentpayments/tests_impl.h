@@ -778,6 +778,227 @@ void run_silentpayments_test_vectors(void) {
     }
 }
 
+void test_batch_scan_all_test_vectors(void) {
+    /* This test processes all test vectors at once using the batch scan API.
+     * Since the same recipient appears in multiple test vectors, we deduplicate
+     * recipients and verify that batch scanning finds all expected outputs. */
+    size_t i, j, k, m;
+
+    /* Track unique recipients across all test vectors */
+    struct unique_recipient {
+        unsigned char scan_seckey[32];
+        unsigned char spend_seckey[32];
+        size_t test_indices[SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+        size_t num_test_vectors;
+        size_t total_expected_outputs;
+        unsigned int label_integers[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+        size_t num_labels;
+    } unique_recipients[SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    size_t num_unique_recipients = 0;
+
+    /* Allocate arrays for batch scan */
+    secp256k1_xonly_pubkey batch_tx_output_objs[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_xonly_pubkey const *batch_tx_outputs[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_silentpayments_found_output batch_found_output_objs[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_silentpayments_found_output *batch_found_outputs[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_silentpayments_prevouts_summary batch_prevouts_summaries[SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_silentpayments_prevouts_summary const *batch_prevouts_summary_ptrs[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+    secp256k1_silentpayments_prevouts_summary const *batch_prevouts_summary_ptrs_copy[MAX_OUTPUTS_PER_TEST_CASE * SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS];
+
+    secp256k1_pubkey plain_pubkeys_objs[MAX_INPUTS_PER_TEST_CASE];
+    secp256k1_xonly_pubkey xonly_pubkeys_objs[MAX_INPUTS_PER_TEST_CASE];
+    secp256k1_pubkey const *plain_pubkeys[MAX_INPUTS_PER_TEST_CASE];
+    secp256k1_xonly_pubkey const *xonly_pubkeys[MAX_INPUTS_PER_TEST_CASE];
+
+    size_t batch_output_idx = 0;
+
+    /* Build list of unique recipients */
+    for (i = 0; i < SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS; i++) {
+        const struct bip352_test_vector *test = &bip352_test_vectors[i];
+        int found_recipient = 0;
+
+        /* Skip test vectors with no inputs */
+        if (test->num_taproot_inputs + test->num_plain_inputs == 0) {
+            continue;
+        }
+
+        /* Check if this recipient already exists */
+        for (j = 0; j < num_unique_recipients; j++) {
+            if (secp256k1_memcmp_var(unique_recipients[j].scan_seckey, test->scan_seckey, 32) == 0 &&
+                secp256k1_memcmp_var(unique_recipients[j].spend_seckey, test->spend_seckey, 32) == 0) {
+                /* Found existing recipient, add this test vector index */
+                unique_recipients[j].test_indices[unique_recipients[j].num_test_vectors] = i;
+                unique_recipients[j].num_test_vectors++;
+                unique_recipients[j].total_expected_outputs += test->num_found_output_pubkeys;
+                /* Collect and deduplicate label_integers from this test vector */
+                for (k = 0; k < test->num_labels; k++) {
+                    unsigned int label_int = test->label_integers[k];
+                    int already_exists = 0;
+                    /* Check if this label_integer is already in the recipient's list */
+                    for (m = 0; m < unique_recipients[j].num_labels; m++) {
+                        if (unique_recipients[j].label_integers[m] == label_int) {
+                            already_exists = 1;
+                            break;
+                        }
+                    }
+                    /* Add it if not already present */
+                    if (!already_exists) {
+                        unique_recipients[j].label_integers[unique_recipients[j].num_labels] = label_int;
+                        unique_recipients[j].num_labels++;
+                    }
+                }
+                found_recipient = 1;
+                break;
+            }
+        }
+
+        /* New recipient, add to list */
+        if (!found_recipient) {
+            memcpy(unique_recipients[num_unique_recipients].scan_seckey, test->scan_seckey, 32);
+            memcpy(unique_recipients[num_unique_recipients].spend_seckey, test->spend_seckey, 32);
+            unique_recipients[num_unique_recipients].test_indices[0] = i;
+            unique_recipients[num_unique_recipients].num_test_vectors = 1;
+            unique_recipients[num_unique_recipients].total_expected_outputs = test->num_found_output_pubkeys;
+            /* Initialize label_integers from this first test vector */
+            unique_recipients[num_unique_recipients].num_labels = 0;
+            for (k = 0; k < test->num_labels; k++) {
+                unique_recipients[num_unique_recipients].label_integers[k] = test->label_integers[k];
+                unique_recipients[num_unique_recipients].num_labels++;
+            }
+            num_unique_recipients++;
+        }
+    }
+
+    /* Build batch inputs: prepare all outputs and prevout summaries */
+    for (i = 0; i < SECP256K1_SILENTPAYMENTS_NUMBER_TESTVECTORS; i++) {
+        const struct bip352_test_vector *test = &bip352_test_vectors[i];
+
+        /* Skip test vectors with no inputs */
+        if (test->num_taproot_inputs + test->num_plain_inputs == 0) {
+            continue;
+        }
+
+        /* Parse input keys for this test vector */
+        for (j = 0; j < test->num_plain_inputs; j++) {
+            CHECK(secp256k1_ec_pubkey_parse(CTX, &plain_pubkeys_objs[j], test->plain_pubkeys[j], 33));
+            plain_pubkeys[j] = &plain_pubkeys_objs[j];
+        }
+        for (j = 0; j < test->num_taproot_inputs; j++) {
+            CHECK(secp256k1_xonly_pubkey_parse(CTX, &xonly_pubkeys_objs[j], test->xonly_pubkeys[j]));
+            xonly_pubkeys[j] = &xonly_pubkeys_objs[j];
+        }
+
+        /* Create prevouts summary for this test vector */
+        {
+            int32_t ecount = 0;
+            int ret;
+            secp256k1_context_set_illegal_callback(CTX, counting_callback_fn, &ecount);
+            ret = secp256k1_silentpayments_recipient_prevouts_summary_create(CTX,
+                &batch_prevouts_summaries[i],
+                test->outpoint_smallest,
+                test->num_taproot_inputs > 0 ? xonly_pubkeys : NULL, test->num_taproot_inputs,
+                test->num_plain_inputs > 0 ? plain_pubkeys : NULL, test->num_plain_inputs
+            );
+            secp256k1_context_set_illegal_callback(CTX, NULL, NULL);
+            CHECK(ecount == (test->num_taproot_inputs + test->num_plain_inputs == 0));
+            if (!ret) {
+                CHECK(test->num_found_output_pubkeys == 0);
+                continue;
+            }
+        }
+
+        /* Parse all outputs for this test vector */
+        for (j = 0; j < test->num_to_scan_outputs; j++) {
+            CHECK(secp256k1_xonly_pubkey_parse(CTX, &batch_tx_output_objs[batch_output_idx], test->to_scan_outputs[j]));
+            batch_tx_outputs[batch_output_idx] = &batch_tx_output_objs[batch_output_idx];
+            batch_found_outputs[batch_output_idx] = &batch_found_output_objs[batch_output_idx];
+            batch_prevouts_summary_ptrs[batch_output_idx] = &batch_prevouts_summaries[i];
+            batch_output_idx++;
+        }
+    }
+
+    /* Process all test vectors in a single batch for each unique recipient */
+    for (i = 0; i < num_unique_recipients; i++) {
+        struct unique_recipient *recipient = &unique_recipients[i];
+
+        secp256k1_pubkey recipient_scan_pubkey;
+        secp256k1_pubkey recipient_spend_pubkey;
+        secp256k1_silentpayments_label label;
+        uint32_t n_batch_found = 0;
+
+        /* Create scan and spend pubkeys */
+        CHECK(secp256k1_ec_pubkey_create(CTX, &recipient_scan_pubkey, recipient->scan_seckey));
+        CHECK(secp256k1_ec_pubkey_create(CTX, &recipient_spend_pubkey, recipient->spend_seckey));
+
+        /* Build labels cache using the deduplicated label_integers */
+        labels_cache.entries_used = 0;
+        for (j = 0; j < recipient->num_labels; j++) {
+            unsigned int label_int = recipient->label_integers[j];
+            struct label_cache_entry *cache_entry = &labels_cache.entries[labels_cache.entries_used];
+            CHECK(secp256k1_silentpayments_recipient_label_create(CTX, &label, cache_entry->label_tweak, recipient->scan_seckey, label_int));
+            CHECK(secp256k1_silentpayments_recipient_label_serialize(CTX, cache_entry->label, &label));
+            labels_cache.entries_used++;
+        }
+
+        /* Reset pointers for this recipient */
+        for (j = 0; j < batch_output_idx; j++) {
+            batch_tx_outputs[j] = &batch_tx_output_objs[j];
+            batch_prevouts_summary_ptrs_copy[j] = batch_prevouts_summary_ptrs[j];
+        }
+
+        /* Batch scan all outputs with this recipient's keys */
+        CHECK(secp256k1_silentpayments_recipient_batch_scan_txs(CTX,
+            batch_found_outputs, &n_batch_found,
+            batch_tx_outputs, batch_output_idx,
+            batch_prevouts_summary_ptrs_copy,
+            recipient->scan_seckey, &recipient_spend_pubkey,
+            label_lookup, &labels_cache)
+        );
+
+        /** Do not verify that batch scan found the expected total outputs
+         *  for each recipient because the input sets are not unique for each
+         *  test vector; it is possible for any recipient to have an output
+         *  in another vector, as is the case of vectors at index 10 and 11.
+         */
+
+        /* Verify each found output matches expected outputs from any test vector using this recipient */
+        for (j = 0; j < n_batch_found; j++) {
+            unsigned char found_output[32];
+            int match = 0;
+
+            CHECK(secp256k1_xonly_pubkey_serialize(CTX, found_output, &batch_found_outputs[j]->output));
+
+            /* Search for this output in all test vectors using this recipient */
+            for (k = 0; k < recipient->num_test_vectors; k++) {
+                const struct bip352_test_vector *test = &bip352_test_vectors[recipient->test_indices[k]];
+
+                for (m = 0; m < test->num_found_output_pubkeys; m++) {
+                    if (secp256k1_memcmp_var(found_output, test->found_output_pubkeys[m], 32) == 0) {
+                        unsigned char full_seckey[32];
+                        secp256k1_keypair keypair;
+                        unsigned char signature[64];
+
+                        /* Verify the tweak matches */
+                        CHECK(secp256k1_memcmp_var(batch_found_outputs[j]->tweak, test->found_seckey_tweaks[m], 32) == 0);
+
+                        /* Verify we can create the correct signature */
+                        memcpy(full_seckey, test->spend_seckey, 32);
+                        CHECK(secp256k1_ec_seckey_tweak_add(CTX, full_seckey, batch_found_outputs[j]->tweak));
+                        CHECK(secp256k1_keypair_create(CTX, &keypair, full_seckey));
+                        CHECK(secp256k1_schnorrsig_sign32(CTX, signature, MSG32, &keypair, AUX32));
+                        CHECK(secp256k1_memcmp_var(signature, test->found_signatures[m], 64) == 0);
+
+                        match = 1;
+                        break;
+                    }
+                }
+                if (match) break;
+            }
+            CHECK(match);
+        }
+    }
+}
+
 /* --- Test registry --- */
 static const struct tf_test_entry tests_silentpayments[] = {
     CASE1(test_recipient_sort),
@@ -785,6 +1006,7 @@ static const struct tf_test_entry tests_silentpayments[] = {
     CASE1(test_label_api),
     CASE1(test_recipient_api),
     CASE1(run_silentpayments_test_vectors),
+    CASE1(test_batch_scan_all_test_vectors),
     CASE1(silentpayments_sha256_tag_test),
 };
 
