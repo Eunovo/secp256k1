@@ -73,9 +73,13 @@ static void help(int default_iters) {
 #endif
 
 #ifdef ENABLE_MODULE_SILENTPAYMENTS
-    printf("    silentpayments                       : all Silent payments benchmarks (full_scan, full_scan_with_labels)\n");
-    printf("    silentpayments_full_scan             : Silent payments full transaction scanning\n");
-    printf("    silentpayments_full_scan_with_labels : Silent payments full transaction scanning with labels\n");
+    printf("    silentpayments                              : all Silent payments benchmarks (full_scan, full_scan_with_labels)\n");
+    printf("    silentpayments_full_scan                    : Silent payments full transaction scanning\n");
+    printf("    silentpayments_full_scan_with_labels        : Silent payments full transaction scanning with labels\n");
+    printf("    silentpayments_batch_scan                   : Silent payments batch scan (10 txs)\n");
+    printf("    silentpayments_batch_scan_with_labels       : Silent payments batch scan (10 txs) with labels\n");
+    printf("    silentpayments_single_scan_multi            : Silent payments single scan multi (10 txs)\n");
+    printf("    silentpayments_single_scan_multi_with_labels: Silent payments single scan multi (10 txs) with labels\n");
 #endif
 
     printf("\n");
@@ -199,7 +203,9 @@ int main(int argc, char** argv) {
                          "ecdsa_recover", "schnorrsig", "schnorrsig_verify", "schnorrsig_sign", "ec",
                          "keygen", "ec_keygen", "ellswift", "encode", "ellswift_encode", "decode",
                          "ellswift_decode", "ellswift_keygen", "ellswift_ecdh", "silentpayments",
-                         "silentpayments_full_scan", "silentpayments_full_scan_with_labels"};
+                         "silentpayments_full_scan", "silentpayments_full_scan_with_labels",
+                         "silentpayments_batch_scan", "silentpayments_batch_scan_with_labels",
+                         "silentpayments_single_scan_multi", "silentpayments_single_scan_multi_with_labels"};
     size_t valid_args_size = sizeof(valid_args)/sizeof(valid_args[0]);
     int invalid_args = have_invalid_args(argc, argv, valid_args, valid_args_size);
 
@@ -253,7 +259,9 @@ int main(int argc, char** argv) {
 
 #ifndef ENABLE_MODULE_SILENTPAYMENTS
     if (have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_full_scan") ||
-        have_flag(argc, argv, "silentpayments_full_scan_with_labels")) {
+        have_flag(argc, argv, "silentpayments_full_scan_with_labels") ||
+        have_flag(argc, argv, "silentpayments_batch_scan") || have_flag(argc, argv, "silentpayments_batch_scan_with_labels") ||
+        have_flag(argc, argv, "silentpayments_single_scan_multi") || have_flag(argc, argv, "silentpayments_single_scan_multi_with_labels")) {
         fprintf(stderr, "./bench: silentpayments module not enabled.\n");
         fprintf(stderr, "See README.md for configuration instructions.\n\n");
         return EXIT_FAILURE;
