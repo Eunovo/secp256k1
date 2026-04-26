@@ -285,6 +285,43 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_silentpayments_recipien
     size_t n_plain_pubkeys
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3);
 
+/** Create multiple Silent Payments prevouts summaries.
+ *
+ *  Batch version of secp256k1_silentpayments_recipient_prevouts_summary_create.
+ *  Processes n transactions, batching the Jacobian-to-affine conversion of the
+ *  prevout pubkey sums across all transactions for improved performance.
+ *
+ *  Returns: 1 if all prevouts summary creations were successful.
+ *           0 if any transaction is not a Silent Payments transaction.
+ *
+ *  Args:                      ctx: pointer to a context object
+ *  Out:      prevouts_summaries: pointer to an array of n pointers to prevouts_summary objects
+ *  In:  outpoints_smallest36: pointer to an array of n pointers to serialized smallest outpoints
+ *               xonly_pubkeys: pointer to an array of n pointers to arrays of taproot x-only
+ *                              public keys. Can be NULL if no transaction uses taproot inputs.
+ *                              Individual entries may be NULL for transactions with no taproot
+ *                              inputs.
+ *             n_xonly_pubkeys: pointer to an array of n sizes for xonly_pubkeys. Can be NULL
+ *                              if xonly_pubkeys is NULL.
+ *               plain_pubkeys: pointer to an array of n pointers to arrays of non-taproot
+ *                              public keys. Can be NULL if no transaction uses non-taproot inputs.
+ *                              Individual entries may be NULL for transactions with no non-taproot
+ *                              inputs.
+ *             n_plain_pubkeys: pointer to an array of n sizes for plain_pubkeys. Can be NULL
+ *                              if plain_pubkeys is NULL.
+ *                           n: number of transactions to process
+ */
+int secp256k1_silentpayments_recipient_batch_prevouts_summary_create(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_prevouts_summary **prevouts_summaries,
+    const unsigned char * const *outpoints_smallest36,
+    const secp256k1_xonly_pubkey * const * const *xonly_pubkeys,
+    const size_t *n_xonly_pubkeys,
+    const secp256k1_pubkey * const * const *plain_pubkeys,
+    const size_t *n_plain_pubkeys,
+    size_t n
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3);
+
 /** Type of callback function for label lookups
  *
  *  A function of this type will be used to retrieve the label tweak for a given

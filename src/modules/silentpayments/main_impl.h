@@ -626,6 +626,95 @@ int secp256k1_silentpayments_recipient_prevouts_summary_create(
     return 1;
 }
 
+int secp256k1_silentpayments_recipient_batch_prevouts_summary_create(
+    const secp256k1_context *ctx,
+    secp256k1_silentpayments_prevouts_summary **prevouts_summaries,
+    const unsigned char * const *outpoints_smallest36,
+    const secp256k1_xonly_pubkey * const * const *xonly_pubkeys,
+    const size_t *n_xonly_pubkeys,
+    const secp256k1_pubkey * const * const *plain_pubkeys,
+    const size_t *n_plain_pubkeys,
+    size_t n
+) {
+    size_t i, j, k, l, n_batches;
+    secp256k1_ge prevouts_pubkey_sum_ge[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    secp256k1_gej prevouts_pubkey_sum_gej[SECP256K1_SILENTPAYMENTS_BATCH_SIZE];
+    secp256k1_ge addend;
+    secp256k1_scalar input_hash_scalar;
+    int ret = 1;
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(prevouts_summaries != NULL);
+    ARG_CHECK(outpoints_smallest36 != NULL);
+    ARG_CHECK(n > 0);
+    for (i = 0; i < n; i++) {
+        ARG_CHECK(prevouts_summaries[i] != NULL);
+        ARG_CHECK(outpoints_smallest36[i] != NULL);
+        ARG_CHECK((xonly_pubkeys != NULL && xonly_pubkeys[i] != NULL) ||
+                  (plain_pubkeys != NULL && plain_pubkeys[i] != NULL));
+        if (xonly_pubkeys != NULL && xonly_pubkeys[i] != NULL) {
+            ARG_CHECK(n_xonly_pubkeys != NULL);
+            ARG_CHECK(n_xonly_pubkeys[i] > 0);
+            for (j = 0; j < n_xonly_pubkeys[i]; j++) {
+                ARG_CHECK(xonly_pubkeys[i][j] != NULL);
+            }
+        }
+        if (plain_pubkeys != NULL && plain_pubkeys[i] != NULL) {
+            ARG_CHECK(n_plain_pubkeys != NULL);
+            ARG_CHECK(n_plain_pubkeys[i] > 0);
+            for (j = 0; j < n_plain_pubkeys[i]; j++) {
+                ARG_CHECK(plain_pubkeys[i][j] != NULL);
+            }
+        }
+    }
+
+    n_batches = ((n - 1) / SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + 1;
+    for (i = 0; i < n_batches; i++) {
+        k = n - (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE);
+        k = k < SECP256K1_SILENTPAYMENTS_BATCH_SIZE ? k : SECP256K1_SILENTPAYMENTS_BATCH_SIZE;
+
+        for (j = 0; j < k; j++) {
+            size_t tx_idx = (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + j;
+            size_t n_plain = (plain_pubkeys != NULL && plain_pubkeys[tx_idx] != NULL) ? n_plain_pubkeys[tx_idx] : 0;
+            size_t n_xonly = (xonly_pubkeys != NULL && xonly_pubkeys[tx_idx] != NULL) ? n_xonly_pubkeys[tx_idx] : 0;
+
+            secp256k1_gej_set_infinity(&prevouts_pubkey_sum_gej[j]);
+            for (l = 0; l < n_plain; l++) {
+                if (!secp256k1_pubkey_load(ctx, &addend, plain_pubkeys[tx_idx][l])) {
+                    ret = 0;
+                }
+                secp256k1_gej_add_ge_var(&prevouts_pubkey_sum_gej[j], &prevouts_pubkey_sum_gej[j], &addend, NULL);
+            }
+            for (l = 0; l < n_xonly; l++) {
+                if (!secp256k1_xonly_pubkey_load(ctx, &addend, xonly_pubkeys[tx_idx][l])) {
+                    ret = 0;
+                }
+                secp256k1_gej_add_ge_var(&prevouts_pubkey_sum_gej[j], &prevouts_pubkey_sum_gej[j], &addend, NULL);
+            }
+            if (secp256k1_gej_is_infinity(&prevouts_pubkey_sum_gej[j])) {
+                ret = 0;
+            }
+        }
+
+        /* Batch convert prevout pubkey sums to affine, saving field inversions vs per-tx conversion */
+        secp256k1_ge_set_all_gej_var(prevouts_pubkey_sum_ge, prevouts_pubkey_sum_gej, k);
+
+        for (l = 0; l < k; l++) {
+            size_t tx_idx = (i * SECP256K1_SILENTPAYMENTS_BATCH_SIZE) + l;
+            if (!secp256k1_silentpayments_calculate_input_hash_scalar(&input_hash_scalar, outpoints_smallest36[tx_idx], &prevouts_pubkey_sum_ge[l])) {
+                ret = 0;
+            }
+            memcpy(&prevouts_summaries[tx_idx]->data[0], secp256k1_silentpayments_prevouts_summary_magic, 4);
+            prevouts_summaries[tx_idx]->data[4] = 0;
+            secp256k1_ge_to_bytes(&prevouts_summaries[tx_idx]->data[5], &prevouts_pubkey_sum_ge[l]);
+            secp256k1_scalar_get_b32(&prevouts_summaries[tx_idx]->data[5 + 64], &input_hash_scalar);
+            secp256k1_gej_clear(&prevouts_pubkey_sum_gej[l]);
+        }
+    }
+
+    return ret;
+}
+
 int secp256k1_silentpayments_recipient_scan_outputs(
     const secp256k1_context *ctx,
     secp256k1_silentpayments_found_output **found_outputs, uint32_t *n_found_outputs,

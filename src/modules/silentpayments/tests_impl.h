@@ -641,6 +641,13 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
     unsigned char found_output[32], batch_found_output[32];
     unsigned char found_signatures[10][64];
     secp256k1_silentpayments_prevouts_summary prevouts_summary;
+    secp256k1_silentpayments_prevouts_summary batch_prevouts_summary;
+    secp256k1_silentpayments_prevouts_summary *batch_ps_ptr[1];
+    const unsigned char *outpoints_arr[1];
+    const secp256k1_xonly_pubkey * const *xonly_ptrs_arr[1];
+    const secp256k1_pubkey * const *plain_ptrs_arr[1];
+    size_t n_xonly_arr[1];
+    size_t n_plain_arr[1];
     secp256k1_silentpayments_prevouts_summary const *prevouts_summary_ptrs[MAX_OUTPUTS_PER_TEST_CASE];
 
 
@@ -675,6 +682,23 @@ void run_silentpayments_test_vector_receive(const struct bip352_test_vector *tes
         CHECK(test->num_found_output_pubkeys == 0);
         return;
     }
+    /* Verify batch API produces a byte-identical prevouts_summary for this single transaction */
+    batch_ps_ptr[0] = &batch_prevouts_summary;
+    outpoints_arr[0] = test->outpoint_smallest;
+    xonly_ptrs_arr[0] = test->num_taproot_inputs > 0 ? xonly_pubkeys : NULL;
+    n_xonly_arr[0] = test->num_taproot_inputs;
+    plain_ptrs_arr[0] = test->num_plain_inputs > 0 ? plain_pubkeys : NULL;
+    n_plain_arr[0] = test->num_plain_inputs;
+    CHECK(secp256k1_silentpayments_recipient_batch_prevouts_summary_create(CTX,
+        batch_ps_ptr,
+        outpoints_arr,
+        test->num_taproot_inputs > 0 ? xonly_ptrs_arr : NULL,
+        n_xonly_arr,
+        test->num_plain_inputs > 0 ? plain_ptrs_arr : NULL,
+        n_plain_arr,
+        1
+    ));
+    CHECK(secp256k1_memcmp_var(batch_prevouts_summary.data, prevouts_summary.data, sizeof(prevouts_summary.data)) == 0);
     /* prepare the outputs */
     for (i = 0; i < test->num_to_scan_outputs; i++) {
         CHECK(secp256k1_xonly_pubkey_parse(CTX, &tx_output_objs[i], test->to_scan_outputs[i]));

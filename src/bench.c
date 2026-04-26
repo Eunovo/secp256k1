@@ -80,6 +80,8 @@ static void help(int default_iters) {
     printf("    silentpayments_batch_scan_with_labels       : Silent payments batch scan (10 txs) with labels\n");
     printf("    silentpayments_single_scan_multi            : Silent payments single scan multi (10 txs)\n");
     printf("    silentpayments_single_scan_multi_with_labels: Silent payments single scan multi (10 txs) with labels\n");
+    printf("    silentpayments_prevouts_summary_create      : Silent payments prevouts summary creation\n");
+    printf("    silentpayments_batch_prevouts_summary_create: Silent payments batch prevouts summary creation (10 txs)\n");
 #endif
 
     printf("\n");
@@ -205,7 +207,9 @@ int main(int argc, char** argv) {
                          "ellswift_decode", "ellswift_keygen", "ellswift_ecdh", "silentpayments",
                          "silentpayments_full_scan", "silentpayments_full_scan_with_labels",
                          "silentpayments_batch_scan", "silentpayments_batch_scan_with_labels",
-                         "silentpayments_single_scan_multi", "silentpayments_single_scan_multi_with_labels"};
+                         "silentpayments_single_scan_multi", "silentpayments_single_scan_multi_with_labels",
+                         "silentpayments_prevouts_summary_create",
+                         "silentpayments_batch_prevouts_summary_create"};
     size_t valid_args_size = sizeof(valid_args)/sizeof(valid_args[0]);
     int invalid_args = have_invalid_args(argc, argv, valid_args, valid_args_size);
 
@@ -261,7 +265,9 @@ int main(int argc, char** argv) {
     if (have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_full_scan") ||
         have_flag(argc, argv, "silentpayments_full_scan_with_labels") ||
         have_flag(argc, argv, "silentpayments_batch_scan") || have_flag(argc, argv, "silentpayments_batch_scan_with_labels") ||
-        have_flag(argc, argv, "silentpayments_single_scan_multi") || have_flag(argc, argv, "silentpayments_single_scan_multi_with_labels")) {
+        have_flag(argc, argv, "silentpayments_single_scan_multi") || have_flag(argc, argv, "silentpayments_single_scan_multi_with_labels") ||
+        have_flag(argc, argv, "silentpayments_prevouts_summary_create") ||
+        have_flag(argc, argv, "silentpayments_batch_prevouts_summary_create")) {
         fprintf(stderr, "./bench: silentpayments module not enabled.\n");
         fprintf(stderr, "See README.md for configuration instructions.\n\n");
         return EXIT_FAILURE;

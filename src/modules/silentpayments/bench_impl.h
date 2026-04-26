@@ -208,6 +208,56 @@ static void bench_silentpayments_batch_scan_with_labels(void *arg, int iters) {
     bench_silentpayments_tx_scan(arg, iters, 1, 1);
 }
 
+static void bench_silentpayments_prevouts_summary_create(void *arg, int iters) {
+    int i;
+    secp256k1_silentpayments_prevouts_summary prevouts_summary;
+    bench_silentpayments_data *data = (bench_silentpayments_data*)arg;
+    const secp256k1_xonly_pubkey *tx_input_ptrs[2];
+    tx_input_ptrs[0] = &data->tx_inputs[0];
+    tx_input_ptrs[1] = &data->tx_inputs[1];
+
+    for (i = 0; i < iters; i++) {
+        CHECK(secp256k1_silentpayments_recipient_prevouts_summary_create(data->ctx,
+            &prevouts_summary,
+            data->smallest_outpoint,
+            tx_input_ptrs, 2,
+            NULL, 0)
+        );
+    }
+}
+
+static void bench_silentpayments_batch_prevouts_summary_create(void *arg, int iters) {
+    size_t k;
+    int i;
+    bench_silentpayments_data *data = (bench_silentpayments_data*)arg;
+    secp256k1_silentpayments_prevouts_summary summaries[MAX_BENCH_TXS];
+    secp256k1_silentpayments_prevouts_summary *summary_ptrs[MAX_BENCH_TXS];
+    const secp256k1_xonly_pubkey *xonly_per_tx[MAX_BENCH_TXS][OUTPUTS_PER_TX];
+    const secp256k1_xonly_pubkey * const *xonly_ptrs[MAX_BENCH_TXS];
+    size_t n_xonly[MAX_BENCH_TXS];
+    const unsigned char *outpoints[MAX_BENCH_TXS];
+
+    for (k = 0; k < data->n_txs; k++) {
+        size_t base_idx = k * OUTPUTS_PER_TX;
+        xonly_per_tx[k][0] = &data->tx_inputs[base_idx];
+        xonly_per_tx[k][1] = &data->tx_inputs[base_idx + 1];
+        xonly_ptrs[k] = xonly_per_tx[k];
+        n_xonly[k] = OUTPUTS_PER_TX;
+        outpoints[k] = &data->smallest_outpoint[k * 36];
+        summary_ptrs[k] = &summaries[k];
+    }
+
+    for (i = 0; i < iters; i++) {
+        CHECK(secp256k1_silentpayments_recipient_batch_prevouts_summary_create(data->ctx,
+            summary_ptrs,
+            outpoints,
+            xonly_ptrs, n_xonly,
+            NULL, NULL,
+            data->n_txs)
+        );
+    }
+}
+
 static void bench_silentpayments_label_create(void *arg, int iters) {
     secp256k1_silentpayments_label label;
     unsigned char label_tweak[32];
@@ -264,6 +314,13 @@ static void run_silentpayments_bench(int iters, int argc, char** argv) {
         sprintf(batch_scan_labels_name, "silentpayments_batch_scan_%utxs_with_labels", MAX_BENCH_TXS);
 
         run_benchmark(batch_scan_labels_name, bench_silentpayments_batch_scan_with_labels, bench_silentpayments_scan_setup_multi, NULL, &data, 10, iters);
+    }
+
+    if (d || have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_prevouts_summary_create")) run_benchmark("silentpayments_prevouts_summary_create", bench_silentpayments_prevouts_summary_create, bench_silentpayments_scan_setup, NULL, &data, 10, iters);
+    if (d || have_flag(argc, argv, "silentpayments") || have_flag(argc, argv, "silentpayments_batch_prevouts_summary_create")) {
+        char batch_prevouts_name[64];
+        sprintf(batch_prevouts_name, "silentpayments_batch_prevouts_summary_create_%utxs", MAX_BENCH_TXS);
+        run_benchmark(batch_prevouts_name, bench_silentpayments_batch_prevouts_summary_create, bench_silentpayments_scan_setup_multi, NULL, &data, 10, iters);
     }
 
     if (d || have_flag(argc, argv, "silentpayments")) {
